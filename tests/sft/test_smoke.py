@@ -69,8 +69,8 @@ def test_propaganda_detection_structure():
     filepath = SFT_DIR / "propaganda_detection.py"
     module_ast = parse_python_file(filepath)
 
-    functions = get_function_names(module_ast)
-    assert "main" in functions
+    classes = get_class_names(module_ast)
+    assert "PropagandaDetectionTrainer" in classes
 
 
 def test_claim_verification_structure():
@@ -78,8 +78,8 @@ def test_claim_verification_structure():
     filepath = SFT_DIR / "claim_verification.py"
     module_ast = parse_python_file(filepath)
 
-    functions = get_function_names(module_ast)
-    assert "main" in functions
+    classes = get_class_names(module_ast)
+    assert "ClaimVerificationTrainer" in classes
 
 
 def test_factcheck_generation_structure():
@@ -87,8 +87,8 @@ def test_factcheck_generation_structure():
     filepath = SFT_DIR / "factcheck_generation.py"
     module_ast = parse_python_file(filepath)
 
-    functions = get_function_names(module_ast)
-    assert "main" in functions
+    classes = get_class_names(module_ast)
+    assert "FactcheckGenerationTrainer" in classes
 
 
 def test_external_model_has_required_classes():
@@ -204,16 +204,19 @@ def test_task_scripts_have_expected_arguments(script_name, expected_args):
         assert arg in content, f"{script_name} missing argument: {arg}"
 
 
-def test_all_tasks_support_model_name_argument():
-    """Verify all tasks support --model_name for multi-model support."""
-    task_files = [
-        "propaganda_detection.py",
-        "claim_verification.py",
-        "factcheck_generation.py",
-    ]
+def test_base_trainer_supports_model_name():
+    """Verify BaseTrainer supports --model_name with Qwen default."""
+    filepath = SFT_DIR / "base_trainer.py"
+    content = filepath.read_text()
+    assert "--model_name" in content, "base_trainer.py missing --model_name support"
+    assert "Qwen" in content or "qwen" in content, "base_trainer.py should default to Qwen"
 
-    for filename in task_files:
-        filepath = SFT_DIR / filename
-        content = filepath.read_text()
-        assert "--model_name" in content, f"{filename} missing --model_name support"
-        assert "Qwen" in content or "qwen" in content, f"{filename} should default to Qwen"
+
+def test_base_trainer_exists():
+    """Verify BaseTrainer class exists."""
+    filepath = SFT_DIR / "base_trainer.py"
+    assert filepath.exists()
+
+    module_ast = parse_python_file(filepath)
+    classes = get_class_names(module_ast)
+    assert "BaseTrainer" in classes
