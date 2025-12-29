@@ -14,12 +14,12 @@ from pathlib import Path
 import torch
 from datasets import Dataset
 from datasets_internal import load_claim_data
+from lora_config import get_classification_lora_config
 from models.external_model import (
     BaseModelType,
     FineTuningConfig,
     get_fine_tuned_external_gpt2,
 )
-from peft import LoraConfig
 from transformers import AutoTokenizer
 from utils import get_device, seed_everything
 
@@ -38,18 +38,6 @@ FEVER_LABELS = {
     1: "REFUTES",
     2: "NOT ENOUGH INFO",
 }
-
-
-def get_lora_config():
-    """Standard LoRA configuration for classification."""
-    return LoraConfig(
-        r=8,
-        lora_alpha=16,
-        target_modules=["q_proj", "v_proj"],
-        lora_dropout=0.1,
-        bias="none",
-        task_type="SEQ_CLS",
-    )
 
 
 def main():
@@ -148,7 +136,7 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    lora_config = get_lora_config() if args.ft_config == "lora" else None
+    lora_config = get_classification_lora_config() if args.ft_config == "lora" else None
 
     ft_config = FineTuningConfig(
         directory=str(output_dir),

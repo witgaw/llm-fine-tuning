@@ -1,12 +1,13 @@
 import os
 import shutil
+import sys
+from pathlib import Path
 
-import finetuning.utils as utils
 from invoke.context import Context
 from invoke.tasks import task
 
-# git config --global user.name "Witold"
-# git config --global user.email "gawlikowicz@gmail.com"
+# Add rl/ to path for finetuning imports (lazy-loaded when needed)
+RL_DIR = Path(__file__).parent / "rl"
 
 
 @task
@@ -24,6 +25,13 @@ def purge(
         print(f"Removed {experiments_path}")
     else:
         print(f"Path {experiments_path} does not exist")
+
+
+@task
+def test(ctx: Context, verbose: bool = False, path: str = "tests/") -> None:
+    """Run test suite."""
+    flags = "-v" if verbose else ""
+    ctx.run(f"uv run pytest {path} {flags}", pty=True)
 
 
 @task
@@ -77,6 +85,10 @@ def factcheck_gen(
 
 @task
 def prepare_local_splits(ctx: Context, overwrite=False, seed: int = 1):
+    # Lazy import to avoid loading heavy RL dependencies for SFT tasks
+    sys.path.insert(0, str(RL_DIR))
+    import finetuning.utils as utils
+
     datasets = {
         "HuggingFaceTB/smol-smoltalk": ("./data/smoltalk", "train", "test", 0.2),
         "Asap7772/cog_behav_all_strategies": ("./data/warmstart", "train", "test", 0.2),

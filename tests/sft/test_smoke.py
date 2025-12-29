@@ -5,7 +5,6 @@ These are lightweight tests that verify basic structure without heavy imports.
 """
 
 import ast
-import sys
 from pathlib import Path
 
 import pytest
@@ -72,7 +71,6 @@ def test_propaganda_detection_structure():
 
     functions = get_function_names(module_ast)
     assert "main" in functions
-    assert "get_lora_config" in functions
 
 
 def test_claim_verification_structure():
@@ -82,7 +80,6 @@ def test_claim_verification_structure():
 
     functions = get_function_names(module_ast)
     assert "main" in functions
-    assert "get_lora_config" in functions
 
 
 def test_factcheck_generation_structure():
@@ -92,7 +89,6 @@ def test_factcheck_generation_structure():
 
     functions = get_function_names(module_ast)
     assert "main" in functions
-    assert "get_lora_config" in functions
 
 
 def test_external_model_has_required_classes():
@@ -116,6 +112,16 @@ def test_datasets_internal_has_loaders():
     functions = get_function_names(module_ast)
     assert "load_propaganda_data" in functions
     assert "load_claim_data" in functions
+
+
+def test_lora_config_has_shared_configs():
+    """Verify lora_config.py defines shared LoRA configurations."""
+    filepath = SFT_DIR / "lora_config.py"
+    module_ast = parse_python_file(filepath)
+
+    functions = get_function_names(module_ast)
+    assert "get_classification_lora_config" in functions
+    assert "get_generation_lora_config" in functions
 
 
 def test_no_syntax_errors_in_tasks():
@@ -152,7 +158,7 @@ def test_no_syntax_errors_in_models():
 
 def test_invoke_tasks_file_exists():
     """Verify invoke tasks file exists and has task definitions."""
-    tasks_file = PROJECT_ROOT / "rl" / "tasks.py"
+    tasks_file = PROJECT_ROOT / "tasks.py"
     assert tasks_file.exists()
 
     module_ast = parse_python_file(tasks_file)
