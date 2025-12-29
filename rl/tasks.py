@@ -27,6 +27,55 @@ def purge(
 
 
 @task
+def propaganda(
+    ctx: Context,
+    model_name: str = "Qwen/Qwen2.5-0.5B",
+    ft_config: str = "lora",
+    use_gpu: bool = True,
+) -> None:
+    """Train propaganda detection model."""
+    gpu_flag = "--use_gpu" if use_gpu else ""
+    ctx.run(
+        f"cd sft && uv run python propaganda_detection.py "
+        f"--model_name {model_name} --ft_config {ft_config} {gpu_flag}",
+        pty=True,
+    )
+
+
+@task
+def claim_verification(
+    ctx: Context,
+    dataset: str = "liar",
+    model_name: str = "Qwen/Qwen2.5-0.5B",
+    ft_config: str = "lora",
+    use_gpu: bool = True,
+) -> None:
+    """Train claim verification model."""
+    gpu_flag = "--use_gpu" if use_gpu else ""
+    ctx.run(
+        f"cd sft && uv run python claim_verification.py "
+        f"--dataset {dataset} --model_name {model_name} --ft_config {ft_config} {gpu_flag}",
+        pty=True,
+    )
+
+
+@task
+def factcheck_gen(
+    ctx: Context,
+    dataset: str = "liar",
+    model_name: str = "Qwen/Qwen2.5-0.5B",
+    use_gpu: bool = True,
+) -> None:
+    """Train fact-check generation model."""
+    gpu_flag = "--use_gpu" if use_gpu else ""
+    ctx.run(
+        f"cd sft && uv run python factcheck_generation.py "
+        f"--dataset {dataset} --model_name {model_name} {gpu_flag}",
+        pty=True,
+    )
+
+
+@task
 def prepare_local_splits(ctx: Context, overwrite=False, seed: int = 1):
     datasets = {
         "HuggingFaceTB/smol-smoltalk": ("./data/smoltalk", "train", "test", 0.2),

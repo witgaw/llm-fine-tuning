@@ -1,116 +1,41 @@
 """
-Propaganda technique detection using GPT-2 with LoRA/ReFT.
+Propaganda technique detection using transformers with LoRA/ReFT.
 
-This script trains a GPT-2 model to detect propaganda techniques in text
+This script trains a model to detect propaganda techniques in text
 using the SemEval-2020 Task 11 dataset.
 
 Usage:
-    python propaganda_detection.py --use_gpu --ft_config=lora_std
+    python propaganda_detection.py --use_gpu --ft_config=lora
+    python propaganda_detection.py --model_name gpt2 --ft_config=base
 """
 
 import argparse
 from pathlib import Path
 
-import pandas as pd
 import torch
-import torch.nn.functional as F
-from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
-from tqdm import tqdm
+from datasets_internal import load_propaganda_data
+from models.external_model import (
+    BaseModelType,
+    FineTuningConfig,
+    get_fine_tuned_external_gpt2,
+)
+from peft import LoraConfig
+from transformers import AutoTokenizer
 from utils import get_device, seed_everything
 
 TQDM_DISABLE = False
 
 
-def load_propaganda_data(data_dir: str = "data/semeval2020"):
-    """Load SemEval-2020 propaganda detection dataset."""
-    data_path = Path(data_dir)
-
-    train_df = pd.read_csv(data_path / "train.csv", sep="\t")
-    dev_df = pd.read_csv(data_path / "dev.csv", sep="\t")
-    test_df = pd.read_csv(data_path / "test.csv", sep="\t")
-
-    return train_df, dev_df, test_df
-
-
-class PropagandaDataset(torch.utils.data.Dataset):
-    """Dataset for propaganda technique detection."""
-
-    def __init__(self, data, tokenizer, max_length=512):
-        self.data = data
-        self.tokenizer = tokenizer
-        self.max_length = max_length
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        row = self.data.iloc[idx]
-        text = row["text"]
-        label = row["label"]
-
-        # Tokenize with padding
-        encoding = self.tokenizer(
-            text,
-            max_length=self.max_length,
-            padding="max_length",
-            truncation=True,
-            return_tensors="pt",
-        )
-
-        return {
-            "input_ids": encoding["input_ids"].squeeze(0),
-            "attention_mask": encoding["attention_mask"].squeeze(0),
-            "labels": torch.tensor(label, dtype=torch.long),
-        }
-
-
-def train(model, train_loader, optimizer, device, epoch):
-    """Training loop for one epoch."""
-    model.train()
-    total_loss = 0
-
-    for batch in tqdm(train_loader, desc=f"Epoch {epoch}", disable=TQDM_DISABLE):
-        input_ids = batch["input_ids"].to(device)
-        attention_mask = batch["attention_mask"].to(device)
-        labels = batch["labels"].to(device)
-
-        optimizer.zero_grad()
-
-        logits = model(input_ids, attention_mask)
-        loss = F.cross_entropy(logits, labels)
-
-        loss.backward()
-        optimizer.step()
-
-        total_loss += loss.item()
-
-    return total_loss / len(train_loader)
-
-
-def evaluate(model, eval_loader, device):
-    """Evaluate model on validation/test set."""
-    model.eval()
-    all_preds = []
-    all_labels = []
-
-    with torch.no_grad():
-        for batch in tqdm(eval_loader, desc="Evaluating", disable=TQDM_DISABLE):
-            input_ids = batch["input_ids"].to(device)
-            attention_mask = batch["attention_mask"].to(device)
-            labels = batch["labels"].to(device)
-
-            logits = model(input_ids, attention_mask)
-            preds = torch.argmax(logits, dim=-1)
-
-            all_preds.extend(preds.cpu().numpy())
-            all_labels.extend(labels.cpu().numpy())
-
-    accuracy = accuracy_score(all_labels, all_preds)
-    f1 = f1_score(all_labels, all_preds, average="weighted")
-    precision = precision_score(all_labels, all_preds, average="weighted", zero_division=0)
-    recall = recall_score(all_labels, all_preds, average="weighted", zero_division=0)
-
-    return {"accuracy": accuracy, "f1": f1, "precision": precision, "recall": recall}
+def get_lora_config():
+    """Standard LoRA configuration for classification."""
+    return LoraConfig(
+        r=8,
+        lora_alpha=16,
+        target_modules=["q_proj", "v_proj"],
+        lora_dropout=0.1,
+        bias="none",
+        task_type="SEQ_CLS",
+    )
 
 
 def main():
@@ -128,9 +53,14 @@ def main():
     parser.add_argument("--use_gpu", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
-        "--ft_config", type=str, default="base", help="Fine-tuning config: base, lora_std, reft_*"
+        "--ft_config",
+        type=str,
+        default="base",
+        choices=["base", "lora"],
+        help="Fine-tuning config: base (full), lora",
     )
     parser.add_argument("--output_dir", type=str, default="outputs/propaganda")
+    parser.add_argument("--max_length", type=int, default=512)
 
     args = parser.parse_args()
 
@@ -141,13 +71,83 @@ def main():
     train_df, dev_df, test_df = load_propaganda_data(args.data_dir)
 
     print(f"Train: {len(train_df)}, Dev: {len(dev_df)}, Test: {len(test_df)}")
+    print(f"Model: {args.model_name}")
+    print(f"Fine-tuning config: {args.ft_config}")
 
-    # TODO: Implement tokenizer and model initialization
-    print("\nNOTE: This script requires further adaptation to:")
-    print("  1. Initialize tokenizer")
-    print("  2. Create model for multi-class classification with LoRA/ReFT")
-    print("  3. Implement proper dataset classes")
-    print("  4. Add LoRA/ReFT configurations")
+    # Get number of unique labels
+    num_labels = train_df["label"].nunique()
+    print(f"Number of classes: {num_labels}")
+
+    # Initialize tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    # Prepare datasets
+    def tokenize_function(examples):
+        return tokenizer(
+            examples["text"],
+            padding="max_length",
+            truncation=True,
+            max_length=args.max_length,
+        )
+
+    from datasets import Dataset
+
+    train_dataset = Dataset.from_pandas(train_df[["text", "label"]])
+    dev_dataset = Dataset.from_pandas(dev_df[["text", "label"]])
+    test_dataset = Dataset.from_pandas(test_df[["text", "label"]])
+
+    train_dataset = train_dataset.map(tokenize_function, batched=True)
+    dev_dataset = dev_dataset.map(tokenize_function, batched=True)
+    test_dataset = test_dataset.map(tokenize_function, batched=True)
+
+    # Rename label column to labels for HuggingFace Trainer
+    train_dataset = train_dataset.rename_column("label", "labels")
+    dev_dataset = dev_dataset.rename_column("label", "labels")
+    test_dataset = test_dataset.rename_column("label", "labels")
+
+    # Set format
+    train_dataset.set_format("torch", columns=["input_ids", "attention_mask", "labels"])
+    dev_dataset.set_format("torch", columns=["input_ids", "attention_mask", "labels"])
+    test_dataset.set_format("torch", columns=["input_ids", "attention_mask", "labels"])
+
+    # Configure fine-tuning
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    lora_config = get_lora_config() if args.ft_config == "lora" else None
+
+    ft_config = FineTuningConfig(
+        directory=str(output_dir),
+        base_model_type=BaseModelType.SequenceClassification,
+        base_model_name=args.model_name,
+        dtype=torch.float32,
+        peft_config=lora_config,
+        optimise_all_base_model_layers=(args.ft_config == "base"),
+        num_labels=num_labels,
+    )
+
+    print("\nConfiguration:")
+    print(f"  Model: {args.model_name}")
+    print(f"  Fine-tuning: {args.ft_config}")
+    print(f"  Classes: {num_labels}")
+    print(f"  Batch size: {args.batch_size}")
+    print(f"  Epochs: {args.num_epochs}")
+    print(f"  Learning rate: {args.lr}")
+    print(f"  Output: {output_dir}")
+    print(f"  Device: {device}")
+
+    print("\nStarting training...")
+    model, trainer = get_fine_tuned_external_gpt2(
+        config=ft_config,
+        training_data=train_dataset,
+        args=args,
+        device=device,
+    )
+
+    print("\nTraining complete!")
+    print(f"Model saved to: {output_dir}")
 
 
 if __name__ == "__main__":

@@ -66,6 +66,7 @@ class FineTuningConfig:
         intervention_config: InternventionConfig = InternventionConfig(),
         optimise_all_base_model_layers=False,
         keep_optimising_additional_model_layers=None,
+        num_labels: int = 2,
     ):
         self.base_model_name = base_model_name
         self.base_model_type = base_model_type
@@ -74,6 +75,7 @@ class FineTuningConfig:
         self.peft_config = peft_config
         self.reft_config = reft_config
         self.intervention_config = intervention_config
+        self.num_labels = num_labels
         if intervention_config is not None:
             self.intervention_config.set_num_interventions(self.reft_config)
         self.directory = directory
@@ -97,7 +99,7 @@ def _get_base_model(config: FineTuningConfig, device):
     )
     if config.seq_cls_base:
         base_model = AutoModelForSequenceClassification.from_pretrained(
-            load_from, torch_dtype=config.dtype, device_map=device, num_labels=2
+            load_from, torch_dtype=config.dtype, device_map=device, num_labels=config.num_labels
         )
     elif config.causal_lm_base:
         base_model = AutoModelForCausalLM.from_pretrained(
